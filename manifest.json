@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "SteamDB Co-op Hover Panel",
+  "version": "0.1.0",
+  "description": "Adds compact Co-Optimus co-op info to SteamDB hover cards.",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": [
+    "https://steamdb.info/*",
+    "https://www.co-optimus.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "SteamDB Co-op Hover Panel",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://steamdb.info/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
