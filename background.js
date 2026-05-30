@@ -9,6 +9,7 @@ const STORAGE_KEYS = {
 
 const CACHE_SCHEMA_VERSION = 1;
 const INDEX_URL = 'https://www.co-optimus.com/gamesMap.php';
+const COOPTIMUS_ORIGIN = 'https://www.co-optimus.com';
 const INDEX_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const INDEX_MAX_STALE_MS = 30 * 24 * 60 * 60 * 1000;
 const DETAIL_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -24,6 +25,15 @@ const inFlight = new Map();
 let lastRequestAt = 0;
 let activeDetailFetches = 0;
 const detailQueue = [];
+
+/**
+ * Tab-based proxy state.
+ * We open one co-optimus.com tab (pinned, inactive) the first time we need
+ * it, reuse it for subsequent requests, and close it when no longer needed.
+ */
+let proxyTabId = null;
+let proxyTabReady = false;
+let proxyTabQueue = [];
 
 const DEFAULT_SETTINGS = {
   autoRefreshIndex: true,
@@ -57,7 +67,27 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   }
 });
 
+// Clean up proxy tab if the user closes it manually.
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabId === proxyTabId) {
+    proxyTabId = null;
+    proxyTabReady = false;
+    // Reject any queued requests so callers get a clean error and can retry.
+    for (const item of proxyTabQueue) {
+      item.reject(new Error('Proxy tab was closed unexpectedly'));
+    }
+    proxyTabQueue = [];
+  }
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Mark the proxy tab as ready once its content script fires.
+  if (message?.type === 'PROXY_READY' && sender.tab?.id === proxyTabId) {
+    proxyTabReady = true;
+    flushProxyQueue();
+    return false;
+  }
+
   handleMessage(message, sender)
     .then((result) => sendResponse({ ok: true, ...result }))
     .catch((error) => sendResponse({ ok: false, error: serializeError(error) }));
@@ -85,6 +115,118 @@ async function handleMessage(message) {
       throw new Error(`Unknown message type: ${message?.type || 'undefined'}`);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Proxy tab management
+// ---------------------------------------------------------------------------
+
+/**
+ * Open (or reuse) a Co-Optimus tab and ask its content script to fetch
+ * `url`, returning the HTML text. The tab is opened in the background
+ * (active:false) and is reused across calls to avoid repeated tab churn.
+ */
+async function proxyFetch(url) {
+  return new Promise((resolve, reject) => {
+    proxyTabQueue.push({ url, resolve, reject });
+    ensureProxyTab().catch(reject);
+  });
+}
+
+async function ensureProxyTab() {
+  if (proxyTabId !== null) {
+    // Tab already exists; if ready, flush the queue immediately.
+    if (proxyTabReady) flushProxyQueue();
+    return;
+  }
+
+  // Create a silent background tab pointing at the Co-Optimus root so the
+  // content script loads and is authorised to fetch co-optimus.com URLs.
+  const tab = await chrome.tabs.create({
+    url: COOPTIMUS_ORIGIN + '/',
+    active: false,
+    pinned: false,
+  });
+  proxyTabId = tab.id;
+  proxyTabReady = false;
+
+  // The content script signals readiness via PROXY_READY; flushProxyQueue
+  // is called from the onMessage handler at that point.
+  // Safety timeout: if the page never reports ready within 15 s, flush anyway.
+  setTimeout(() => {
+    if (!proxyTabReady && proxyTabId === tab.id) {
+      proxyTabReady = true;
+      flushProxyQueue();
+    }
+  }, 15000);
+}
+
+function flushProxyQueue() {
+  while (proxyTabQueue.length > 0 && proxyTabReady && proxyTabId !== null) {
+    const item = proxyTabQueue.shift();
+    dispatchProxyFetch(item);
+  }
+}
+
+function dispatchProxyFetch({ url, resolve, reject }) {
+  chrome.tabs.sendMessage(
+    proxyTabId,
+    { type: 'PROXY_FETCH', payload: { url } },
+    (response) => {
+      if (chrome.runtime.lastError) {
+        // Content script not yet injected; push back and retry after a short delay.
+        proxyTabQueue.unshift({ url, resolve, reject });
+        proxyTabReady = false;
+        setTimeout(() => {
+          if (proxyTabId !== null) {
+            proxyTabReady = true;
+            flushProxyQueue();
+          }
+        }, 1500);
+        return;
+      }
+      if (!response?.ok) {
+        reject(new Error(response?.error || `Proxy fetch failed for ${url}`));
+        return;
+      }
+      resolve(response.html);
+    }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Throttled fetch wrapper — now routes Co-Optimus URLs through the proxy tab.
+// Direct fetch() from the service worker gets 403 because Co-Optimus blocks
+// requests that lack normal browser headers/cookies. The proxy tab runs in
+// page context so its requests look like regular browser navigation.
+// ---------------------------------------------------------------------------
+
+async function fetchWithThrottle(url, _options = {}) {
+  const now = Date.now();
+  const waitMs = Math.max(0, REQUEST_GAP_MS - (now - lastRequestAt));
+  if (waitMs > 0) await delay(waitMs);
+  lastRequestAt = Date.now();
+
+  if (url.startsWith(COOPTIMUS_ORIGIN)) {
+    const html = await proxyFetch(url);
+    // Wrap in a minimal Response-compatible object so callers don't change.
+    return {
+      ok: true,
+      status: 200,
+      text: async () => html,
+      headers: { get: () => null },
+    };
+  }
+
+  // Non-Co-Optimus URLs (currently none, but kept for safety).
+  return fetch(url, {
+    credentials: 'omit',
+    cache: 'no-store',
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Everything below is unchanged from the original background.js.
+// ---------------------------------------------------------------------------
 
 async function getCoopData({ appid, steamTitle, forceRefresh = false }) {
   if (!appid || !steamTitle) {
@@ -238,9 +380,7 @@ async function refreshIndexIfNeeded({ force, reason }) {
       return indexCache;
     }
 
-    const response = await fetchWithThrottle(INDEX_URL, {
-      headers: buildConditionalHeaders(indexCache),
-    });
+    const response = await fetchWithThrottle(INDEX_URL);
 
     if (response.status === 304 && indexCache) {
       const updated = {
@@ -693,20 +833,6 @@ async function ensureWeeklyAlarm() {
   });
 }
 
-async function fetchWithThrottle(url, options = {}) {
-  const now = Date.now();
-  const waitMs = Math.max(0, REQUEST_GAP_MS - (now - lastRequestAt));
-  if (waitMs > 0) {
-    await delay(waitMs);
-  }
-  lastRequestAt = Date.now();
-  return await fetch(url, {
-    ...options,
-    credentials: 'omit',
-    cache: 'no-store',
-  });
-}
-
 function enqueueDetailFetch(task) {
   return new Promise((resolve, reject) => {
     detailQueue.push({ task, resolve, reject });
@@ -737,7 +863,7 @@ function buildNormalizedTitleKeys(title) {
     ascii
       .replace(/[™®©]/g, '')
       .replace(/&/g, ' and ')
-      .replace(/[:'’.,!?()\[\]{}+/_-]+/g, ' ')
+      .replace(/[:''.,!?()\[\]{}+/_-]+/g, ' ')
   );
   const looseKey = normalizeWhitespace(
     strictKey
