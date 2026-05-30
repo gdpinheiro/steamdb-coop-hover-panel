@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SteamDB Co-op Hover Panel</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="popup">
+    <h1>SteamDB Co-op Hover Panel</h1>
+    <section class="card">
+      <div class="row"><span>Index cache</span><strong id="indexStatus">Loading…</strong></div>
+      <div class="row"><span>PC entries</span><strong id="pcEntries">—</strong></div>
+      <div class="row"><span>Detail cache</span><strong id="detailCount">—</strong></div>
+      <div class="row"><span>Match cache</span><strong id="matchCount">—</strong></div>
+    </section>
+
+    <section class="card actions">
+      <button id="refreshIndex">Refresh master index</button>
+      <label class="toggle">
+        <input type="checkbox" id="autoRefreshIndex">
+        <span>Weekly auto refresh</span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="debugMode">
+        <span>Debug mode</span>
+      </label>
+    </section>
+
+    <p id="message" class="message"></p>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

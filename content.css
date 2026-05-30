@@ -1,0 +1,130 @@
+#steamdb-coop-panel-root.sdbcoop-panel {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12px;
+  line-height: 1.4;
+  color: inherit;
+}
+
+.sdbcoop-heading {
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 6px;
+  opacity: 0.95;
+}
+
+.sdbcoop-grid {
+  display: grid;
+  gap: 4px;
+}
+
+.sdbcoop-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.sdbcoop-label {
+  color: rgba(255, 255, 255, 0.72);
+  min-width: 0;
+}
+
+.sdbcoop-value {
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.sdbcoop-value.is-muted,
+.sdbcoop-message.is-muted,
+.sdbcoop-footer {
+  color: rgba(255, 255, 255, 0.64);
+}
+
+.sdbcoop-message.is-error {
+  color: #ff9d9d;
+}
+
+.sdbcoop-footer {
+  margin-top: 6px;
+  font-size: 11px;
+}
+
+.sdbcoop-source {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: inherit;
+  opacity: 0.75;
+  text-decoration: underline;
+}
+
+.sdbcoop-actions {
+  margin-top: 6px;
+}
+
+.sdbcoop-refresh {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  color: inherit;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.sdbcoop-refresh:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.sdbcoop-refresh:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.sdbcoop-skeleton {
+  display: grid;
+  gap: 4px;
+}
+
+.sdbcoop-skeleton-line {
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.08) 25%, rgba(255,255,255,0.14) 50%, rgba(255,255,255,0.08) 75%);
+  background-size: 200% 100%;
+  animation: sdbcoop-shimmer 1.3s linear infinite;
+}
+
+.sdbcoop-skeleton-line:nth-child(2) {
+  width: 88%;
+}
+
+.sdbcoop-skeleton-line:nth-child(3) {
+  width: 72%;
+}
+
+.sdbcoop-ambiguous-list {
+  display: grid;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.sdbcoop-ambiguous-item {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 11px;
+}
+
+@keyframes sdbcoop-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sdbcoop-skeleton-line {
+    animation: none;
+  }
+}
